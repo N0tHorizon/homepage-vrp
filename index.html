@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Customizable Page</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <header id="hero">
+      <h1 id="siteTitle">Loading…</h1>
+      <p id="subtitle"></p>
+    </header>
+    <div id="content"></div>
+  </main>
+
+  <script>
+    // Simple markdown renderer (supports headings, paragraphs, links, lists, bold, italic)
+    function renderMarkdown(md){
+      // Escape HTML
+      md = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      // Code blocks (```) 
+      md = md.replace(/```([\s\S]*?)```/g, function(_, code){
+        return '<pre class="code">' + code.replace(/\n/g, '<br>') + '</pre>';
+      });
+
+      // Headings
+      md = md.replace(/^###### (.*)$/gm, '<h6>$1</h6>');
+      md = md.replace(/^##### (.*)$/gm, '<h5>$1</h5>');
+      md = md.replace(/^#### (.*)$/gm, '<h4>$1</h4>');
+      md = md.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+      md = md.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+      md = md.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+
+      // Bold and italic
+      md = md.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      md = md.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+      // Links [text](url)
+      md = md.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+      // Unordered lists
+      md = md.replace(/^(?:\s*)[-\*] (.*)$/gm, '<li>$1</li>');
+      md = md.replace(/(?:<li>.*<\/li>\n?)+/g, function(list){
+        // Wrap consecutive <li> into a <ul>
+        if (list.indexOf('<ul>') === 0) return list;
+        return '<ul>' + list.trim().replace(/\n/g,'') + '</ul>';
+      });
+
+      // Paragraphs (convert remaining lines to <p>)
+      md = md.replace(/^(?!<h|<ul|<pre|<p|<li|<blockquote)([^\n]+)$/gm, '<p>$1</p>');
+
+      return md;
+    }
+
+    // Parse commands from lines that start with '*' (e.g. *#Dark, *accent:#ff0000)
+    function parseCommands(lines){
+      const commands = {};
+      for(const l of lines){
+        if(!l.startsWith('*')) continue;
+        const t = l.slice(1).trim();
+        if(!t) continue;
+        // Theme keywords
+        if(t.toLowerCase() === '#dark' || t.toLowerCase() === '#light'){
+          commands.theme = t.toLowerCase().slice(1); // 'dark' or 'light'
+          continue;
+        }
+        // key:value pairs (accent:#hex, font:Inter)
+        const kv = t.split(':');
+        if(kv.length >= 2){
+          const key = kv[0].trim().toLowerCase();
+          const val = kv.slice(1).join(':').trim();
+          commands[key] = val;
+        }
+      }
+      return commands;
+    }
+
+    async function load(){
+      try{
+        const res = await fetch('content.md', {cache: 'no-store'});
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const txt = await res.text();
+        const lines = txt.split(/\r?\n/);
+
+        // Extract front commands (top consecutive lines starting with '*')
+        const frontLines = [];
+        let bodyStart = 0;
+        for(let i=0;i<lines.length;i++){
+          if(lines[i].startsWith('*')){ frontLines.push(lines[i]); bodyStart = i+1; }
+          else if(lines[i].trim() === ''){ bodyStart = i+1; continue; }
+          else break;
+        }
+
+        const commands = parseCommands(frontLines);
+
+        // Apply theme defaults
+        const root = document.documentElement;
+        if(commands.theme === 'dark'){
+          root.classList.remove('light');
+          root.classList.add('dark');
+        } else if(commands.theme === 'light'){
+          root.classList.remove('dark');
+          root.classList.add('light');
+        }
+
+        if(commands.accent){ root.style.setProperty('--accent', commands.accent); }
+        if(commands.bg){ root.style.setProperty('--bg', commands.bg); }
+        if(commands.text){ root.style.setProperty('--text', commands.text); }
+        if(commands.font){ document.body.style.fontFamily = commands.font; }
+
+        // Find optional title and subtitle in the top of the markdown (first H1 as title)
+        const remainder = lines.slice(bodyStart).join('\n');
+        const rendered = renderMarkdown(remainder);
+
+        // Optionally set site title from first H1
+        const tmp = document.createElement('div');
+        tmp.innerHTML = rendered;
+        const h1 = tmp.querySelector('h1');
+        if(h1){ document.getElementById('siteTitle').textContent = h1.textContent; h1.remove(); }
+        const h2 = tmp.querySelector('h2');
+        if(h2){ document.getElementById('subtitle').textContent = h2.textContent; h2.remove(); }
+
+        document.getElementById('content').innerHTML = tmp.innerHTML;
+      }catch(e){
+        document.getElementById('app').textContent = 'Failed to load content.md: ' + e;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
